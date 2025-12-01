@@ -1,0 +1,61 @@
+name: Node.JS CI/CD with Docker on Render
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:   
+  build-test-docker:
+    name: Build, Test & Dockerize
+    runs-on: ubuntu-latest
+    env:
+      IMAGE_NAME: my-nestjs-app
+      IMAGE_TAG: latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build NestJS
+        run: npm run build
+
+      - name: Run tests
+        run: npm test
+
+      - name: Build Docker image
+        run: docker build -t $IMAGE_NAME:$IMAGE_TAG .
+      
+      - name: Login to Docker Hub
+        run: echo ${{ secrets.DOCKERHUB_TOKEN }} | docker login -u ${{ secrets.DOCKERHUB_USERNAME }} --password-stdin
+      
+      - name: Tag image for Docker Hub
+        run: docker tag $IMAGE_NAME:$IMAGE_TAG ${{ secrets.DOCKERHUB_USERNAME }}/$IMAGE_NAME:$IMAGE_TAG
+      
+      - name: Push to Docker Hub
+        run: docker push ${{ secrets.DOCKERHUB_USERNAME }}/$IMAGE_NAME:$IMAGE_TAG
+
+      - name: Install Render CLI
+        run: |
+          curl -L https://github.com/render-oss/cli/releases/download/v1.1.0/cli_1.1.0_linux_amd64.zip -o render.zip
+          unzip -o render.zip -d render-cli
+          sudo mv render-cli/cli_v1.1.0 /usr/local/bin/render
+          render --version
+
+      - name: Deploy Docker service to Render
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          CI: true
+          IMAGE_NAME: docker.io/${{ secrets.DOCKERHUB_USERNAME }}/my-nestjs-app:latest
+        run: |
+          echo "Deploying Render service with image $IMAGE_NAME"
+          render deploys create ${{ secrets.RENDER_SERVICE_ID }} --image $IMAGE_NAME --output json --confirm
